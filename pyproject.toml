@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "mplnow"
 version = "0.1.0"
-description = "Immediate-mode API for live, interactive, and animated matplotlib plots"
+description = "Immediate mode style API for live, interactive, and animated matplotlib plots"
 authors = ["Callum Doolin <callum@resolvedinstruments.com>"]
 license = "MIT"
 readme = "README.md"
