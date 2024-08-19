@@ -1,11 +1,11 @@
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, Sequence, override
+from typing import Any, Callable, Literal, Sequence, override, Self
 import logging
 from contextlib import ExitStack
 
 import numpy as np
 from numpy.typing import ArrayLike
-import matplotlib.pyplot as plt
+from matplotlib import pyplot
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
@@ -69,7 +69,7 @@ class Drawing:
         else:
             log.error(f"end() called but drawing not in progress. {self}")
 
-    def _get_exitstack(self):
+    def _get_drawstack(self):
         if self._drawstack is None:
             raise RuntimeError("Render not started.")
         return self._drawstack
@@ -93,7 +93,7 @@ class Drawing:
             if state.creator_name != name:
                 log.warning(f"artifact creator mismatch - recreating ({self})")
                 state.remover(state.artifact)
-            if state.deps != deps:
+            elif state.deps != deps:
                 log.debug(f"recreating artifact ({self})")
                 state.remover(state.artifact)
             else:
@@ -115,9 +115,22 @@ class AxesDrawing(Drawing):
         super().__init__()
         self.ax = ax
 
-    def curve(self, x: ArrayLike, y: ArrayLike, **kwargs) -> Line2D:
+    @override
+    def begin(self):
+        cm = super().begin()
+
+        # reset color cycle
+        self.ax.set_prop_cycle(None)  # type: ignore
+
+        return cm
+
+    def plot(self, x: ArrayLike, y: ArrayLike, fmt: str = "", **kwargs) -> Line2D:
         def create() -> Line2D:
-            (line,) = self.ax.plot(x, y, **kwargs)
+            if fmt:
+                (line,) = self.ax.plot(x, y, fmt, **kwargs)
+            else:
+                (line,) = self.ax.plot(x, y, **kwargs)
+
             return line
 
         def update(line: Line2D, cache: dict[str, Any]) -> None:
@@ -132,7 +145,8 @@ class AxesDrawing(Drawing):
         def remove(artifact: Line2D):
             artifact.remove()
 
-        return self._use_artifact("curve", kwargs, create, update, remove)
+        deps = dict(fmt=fmt, kwargs=kwargs)
+        return self._use_artifact("plot", deps, create, update, remove)
 
     def axhline(
         self, y: float = 0, xmin: float = 0, xmax: float = 1, **kwargs
@@ -166,15 +180,61 @@ class AxesDrawing(Drawing):
         deps = dict(ylabel=ylabel, **kwargs)
         self._use_artifact("set_ylabel", deps, create)
 
-    def set_xlim(
-        self, left=None, right=None, *, emit=True, auto=False, xmin=None, xmax=None
-    ):
-
+    def tick_params(self, axis: Literal["both", "x", "y"] = "both", **kwargs):
         def create():
-            self.ax.set_xlim(left, right, emit=emit, auto=auto, xmin=xmin, xmax=xmax)
+            self.ax.tick_params(axis=axis, **kwargs)
 
-        deps = dict(left=left, right=right, emit=emit, auto=auto, xmin=xmin, xmax=xmax)
+        deps = dict(axis=axis, **kwargs)
+        self._use_artifact("tick_params", deps, create)
+
+    def set_xlim(self, left: float, right: float, *, emit=True, auto=False):
+        def create():
+            self.ax.set_xlim(left, right, emit=emit, auto=auto)
+
+        deps = dict(left=left, right=right, emit=emit, auto=auto)
         self._use_artifact("set_xlim", deps, create)
+
+    def set_ylim(self, bottom: float, top: float, *, emit=True, auto=False):
+        def create():
+            self.ax.set_ylim(bottom, top, emit=emit, auto=auto)
+
+        deps = dict(bottom=bottom, top=top, emit=emit, auto=auto)
+        self._use_artifact("set_ylim", deps, create)
+
+    def twinx(self) -> Self:
+        drawstack = self._get_drawstack()
+
+        def create() -> Self:
+            ax_ = self.ax.twinx()
+            ax = AxesDrawing(ax_)
+            drawstack.enter_context(ax.begin())
+            return ax
+
+        def update(ax: Self, _cache):
+            drawstack.enter_context(ax.begin())
+
+        def remove(ax: Self):
+            ax.end()
+            ax.ax.remove()
+
+        return self._use_artifact("twinx", {}, create, update, remove)
+
+    def autoscale(
+        self,
+        enable: bool = True,
+        axis: Literal["both", "x", "y"] = "both",
+        tight: bool | None = None,
+    ):
+        def create():
+            self.ax.autoscale(enable=enable, axis=axis, tight=tight)
+
+        def update(_artifact, _cache):
+            if enable:
+                self.ax.relim()
+                self.ax.autoscale(enable=enable, axis=axis, tight=tight)
+
+        deps = dict(enable=enable, axis=axis, tight=tight)
+        self._use_artifact("autoscale", deps, create, update)
 
 
 class FigDrawing(Drawing):
@@ -182,22 +242,22 @@ class FigDrawing(Drawing):
         super().__init__()
 
         if fig is None:
-            fig = plt.figure()
-            plt.show(block=False)
+            with pyplot.ioff():
+                fig = pyplot.figure()
 
         self.fig = fig
 
     @override
     def begin(self):
-        exitstack = super().begin()
+        drawstack = super().begin()
 
-        exitstack.enter_context(plt.ioff())
+        drawstack.enter_context(pyplot.ioff())
 
-        @exitstack.callback
+        @drawstack.callback
         def on_end():
             self.fig.canvas.draw()
 
-        return exitstack
+        return drawstack
 
     def subplots(
         self,
@@ -227,10 +287,10 @@ class FigDrawing(Drawing):
         )
 
         def begin_axes(axes: list[AxesDrawing]):
-            exitstack = self._get_exitstack()
+            drawstack = self._get_drawstack()
 
             for ax in axes:
-                exitstack.enter_context(ax.begin())
+                drawstack.enter_context(ax.begin())
 
         def create() -> list[AxesDrawing]:
             axes_collection = self.fig.subplots(
@@ -259,6 +319,7 @@ class FigDrawing(Drawing):
 
         def remove(axes: list[AxesDrawing]):
             for axw in axes:
+                axw.end()
                 axw.ax.remove()
 
         return self._use_artifact("subplots", deps, create, update, remove)
