@@ -1,1 +1,1 @@
-from .drawing import FigDrawing
+from .drawing import FigDrawing, AxesDrawing

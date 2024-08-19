@@ -170,7 +170,11 @@ class AxesDrawing(Drawing):
         return self._use_artifact("plot", deps, create, update, remove)
 
     def axhline(
-        self, y: float = 0, xmin: float = 0, xmax: float = 1, **kwargs
+        self,
+        y: float = 0,
+        xmin: float = 0,
+        xmax: float = 1,
+        **kwargs,
     ) -> Line2D:
         def create():
             artifact = self.ax.axhline(y, xmin, xmax, **kwargs)
@@ -188,6 +192,30 @@ class AxesDrawing(Drawing):
 
         deps = dict(y=y, xmin=xmin, xmax=xmax, **kwargs)
         return self._use_artifact("axhline", deps, create, update, remove)
+
+    def axvline(
+        self,
+        x: float = 0,
+        ymin: float = 0,
+        ymax: float = 1,
+        **kwargs,
+    ) -> Line2D:
+        def create():
+            artifact = self.ax.axvline(x, ymin, ymax, **kwargs)
+            self._legend_deps.append(artifact)
+            return artifact
+
+        def update(artifact: Line2D, cache):
+            if cache.get("x", None) is not x:
+                artifact.set_xdata([x, x])
+                cache["x"] = x
+
+        def remove(artifact: Line2D):
+            self._legend_deps.remove(artifact)
+            artifact.remove()
+
+        deps = dict(x=x, ymin=ymin, ymax=ymax, **kwargs)
+        return self._use_artifact("axvline", deps, create, update, remove)
 
     def set_xlabel(self, xlabel: str, **kwargs) -> None:
         def create():
@@ -387,6 +415,15 @@ class FigDrawing(Drawing):
 
         deps = [handles, labels, kwargs]
         return self._use_artifact("legend", deps, create, remove=remove)
+
+    def set_size_inches(
+        self, w: float | tuple[float, float], h: float | None = None, forward=True
+    ):
+        def create():
+            self.fig.set_size_inches(w, h, forward)
+
+        deps = [w, h, forward]
+        self._use_artifact("set_size_inches", deps, create)
 
     def clear(self):
         self._remove_all()
