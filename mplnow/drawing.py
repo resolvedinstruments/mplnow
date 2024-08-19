@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, Sequence, override, Self
+from typing import Any, Callable, Literal, Sequence, override, Self, Iterable
 import logging
 from contextlib import ExitStack
 
@@ -9,6 +9,8 @@ from matplotlib import pyplot
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
+from matplotlib.artist import Artist
+from matplotlib.legend import Legend
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ class ArtifactState[T]:
     # store name for additional checks of state mismatch
     creator_name: str
     # If deps change, the artifact is removed and recreated
-    deps: dict[str, Any]
+    deps: dict[str, Any] | list[Any]
     artifact: T
     remover: RemoveCallback[T]
     # Cache for update function use, e.g. for custom checks if data has changed
@@ -79,10 +81,10 @@ class Drawing:
     ](
         self,
         name: str,
-        deps: dict[str, Any],
+        deps: dict[str, Any] | list[Any],
         create: CreateCallback[T],
-        update: UpdateCallback[T] = lambda x, y: None,
-        remove: RemoveCallback[T] = lambda x: None,
+        update: UpdateCallback[T] = lambda _x, _y: None,
+        remove: RemoveCallback[T] = lambda _x: None,
     ) -> T:
         key = self._iter_index
         self._iter_index += 1
@@ -109,11 +111,20 @@ class Drawing:
         self._state[key] = state
         return state.artifact
 
+    def _remove_all(self):
+        for key, state in self._state.items():
+            state.remover(state.artifact)
+
+        self._state.clear()
+
 
 class AxesDrawing(Drawing):
     def __init__(self, ax: Axes):
         super().__init__()
         self.ax = ax
+
+        # Keep track of legend artists to trigger legend updates
+        self._legend_deps: list[Artist] = []
 
     @override
     def begin(self):
@@ -124,28 +135,38 @@ class AxesDrawing(Drawing):
 
         return cm
 
-    def plot(self, x: ArrayLike, y: ArrayLike, fmt: str = "", **kwargs) -> Line2D:
-        def create() -> Line2D:
+    def plot(self, x: ArrayLike, y: ArrayLike, fmt: str = "", **kwargs) -> list[Line2D]:
+        def create() -> list[Line2D]:
             if fmt:
-                (line,) = self.ax.plot(x, y, fmt, **kwargs)
+                lines = self.ax.plot(x, y, fmt, **kwargs)
             else:
-                (line,) = self.ax.plot(x, y, **kwargs)
+                lines = self.ax.plot(x, y, **kwargs)
 
-            return line
+            self._legend_deps += lines
+            return lines
 
-        def update(line: Line2D, cache: dict[str, Any]) -> None:
+        def update(lines: list[Line2D], cache: dict[str, Any]) -> None:
+            fmt_colors = "bgrcmykw"
+            if not (
+                "color" in kwargs or "c" in kwargs or any(c in fmt_colors for c in fmt)
+            ):
+                # cycle color for lines
+                self.ax._get_lines.get_next_color()  # type: ignore
+
             if cache.get("x", None) is not x:
-                line.set_xdata(x)
+                lines[0].set_xdata(x)
                 cache["x"] = x
 
             if cache.get("y", None) is not y:
-                line.set_ydata(y)
+                lines[0].set_ydata(y)
                 cache["y"] = y
 
-        def remove(artifact: Line2D):
-            artifact.remove()
+        def remove(lines: list[Line2D]):
+            for line in lines:
+                self._legend_deps.remove(line)
+                line.remove()
 
-        deps = dict(fmt=fmt, kwargs=kwargs)
+        deps = [fmt, kwargs]
         return self._use_artifact("plot", deps, create, update, remove)
 
     def axhline(
@@ -153,6 +174,7 @@ class AxesDrawing(Drawing):
     ) -> Line2D:
         def create():
             artifact = self.ax.axhline(y, xmin, xmax, **kwargs)
+            self._legend_deps.append(artifact)
             return artifact
 
         def update(artifact: Line2D, cache):
@@ -161,6 +183,7 @@ class AxesDrawing(Drawing):
                 cache["y"] = y
 
         def remove(artifact: Line2D):
+            self._legend_deps.remove(artifact)
             artifact.remove()
 
         deps = dict(y=y, xmin=xmin, xmax=xmax, **kwargs)
@@ -233,8 +256,25 @@ class AxesDrawing(Drawing):
                 self.ax.relim()
                 self.ax.autoscale(enable=enable, axis=axis, tight=tight)
 
-        deps = dict(enable=enable, axis=axis, tight=tight)
+        deps = [enable, axis, tight]
         self._use_artifact("autoscale", deps, create, update)
+
+    def legend(
+        self,
+        handles: Iterable[Artist | tuple[Artist, ...]] | None = None,
+        labels: Iterable[str] | None = None,
+        **kwargs,
+    ):
+        def create():
+            args = [x for x in [handles, labels] if x is not None]
+            legend = self.ax.legend(*args, **kwargs)
+            return legend
+
+        def remove(legend: Legend):
+            legend.remove()
+
+        deps = [handles, labels, kwargs, *self._legend_deps]
+        return self._use_artifact("legend", deps, create, remove=remove)
 
 
 class FigDrawing(Drawing):
@@ -330,3 +370,24 @@ class FigDrawing(Drawing):
 
         deps = dict(layout=layout, **kwargs)
         self._use_artifact("set_layout_engine", deps, create)
+
+    def legend(
+        self,
+        handles: Iterable[Artist | tuple[Artist, ...]] | None = None,
+        labels: Iterable[str] | None = None,
+        **kwargs,
+    ):
+        def create():
+            args = [x for x in [handles, labels] if x is not None]
+            legend = self.fig.legend(*args, **kwargs)
+            return legend
+
+        def remove(legend: Legend):
+            legend.remove()
+
+        deps = [handles, labels, kwargs]
+        return self._use_artifact("legend", deps, create, remove=remove)
+
+    def clear(self):
+        self._remove_all()
+        self.fig.clear()
