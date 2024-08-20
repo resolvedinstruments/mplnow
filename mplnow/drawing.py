@@ -102,14 +102,16 @@ class Drawing:
                 update(state.artifact, state.update_cache)
                 return state.artifact
 
-        state = ArtifactState[T](
-            creator_name=name,
-            deps=deps,
-            artifact=create(),
-            remover=remove,
-        )
-        self._state[key] = state
-        return state.artifact
+        try:
+            artifact = create()
+        except Exception as e:
+            # remove artifact from state so remover always knows create() finished successfully
+            if key in self._state:
+                del self._state[key]
+            raise e
+
+        self._state[key] = ArtifactState[T](name, deps, artifact, remove)
+        return artifact
 
     def _remove_all(self):
         for key, state in self._state.items():
