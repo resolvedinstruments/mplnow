@@ -40,7 +40,7 @@ class Drawing:
 
     def begin(self):
         if self._drawstack:
-            log.error(f"begin(), but drawing already started. ({self})")
+            log.warning(f"begin(), but drawing already started. ({self})")
         self._drawstack = ExitStack()
 
         self._iter_index = 0
@@ -69,7 +69,7 @@ class Drawing:
         if self._drawstack:
             self._drawstack.close()
         else:
-            log.error(f"end() called but drawing not in progress. {self}")
+            log.warning(f"end() called but drawing not in progress. {self}")
 
     def _get_drawstack(self):
         if self._drawstack is None:
@@ -325,9 +325,12 @@ class FigDrawing(Drawing):
 
         @drawstack.callback
         def on_end():
-            self.fig.canvas.draw()
+            self.draw()
 
         return drawstack
+
+    def draw(self):
+        self.fig.canvas.draw()
 
     def subplots(
         self,
@@ -427,6 +430,9 @@ class FigDrawing(Drawing):
         deps = [w, h, forward]
         self._use_artifact("set_size_inches", deps, create)
 
-    def clear(self):
+    def clear(self, draw=True):
         self._remove_all()
         self.fig.clear()
+
+        if draw:
+            self.draw()
