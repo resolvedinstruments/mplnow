@@ -184,7 +184,7 @@ class AxesDrawing(Drawing):
             return artifact
 
         def update(artifact: Line2D, cache):
-            if cache.get("y", None) is not y:
+            if cache.get("y", None) != y:
                 artifact.set_ydata([y, y])
                 cache["y"] = y
 
@@ -208,7 +208,7 @@ class AxesDrawing(Drawing):
             return artifact
 
         def update(artifact: Line2D, cache):
-            if cache.get("x", None) is not x:
+            if cache.get("x", None) != x:
                 artifact.set_xdata([x, x])
                 cache["x"] = x
 
