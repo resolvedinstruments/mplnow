@@ -318,14 +318,16 @@ class FigDrawing(Drawing):
         self.fig = fig
 
     @override
-    def begin(self):
+    def begin(self, draw_on_end=True):
         drawstack = super().begin()
 
         drawstack.enter_context(pyplot.ioff())
 
-        @drawstack.callback
-        def on_end():
-            self.draw()
+        if draw_on_end:
+
+            @drawstack.callback
+            def on_end():
+                self.draw()
 
         return drawstack
 
