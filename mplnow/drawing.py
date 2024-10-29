@@ -9,6 +9,7 @@ from matplotlib import pyplot
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
+from matplotlib.collections import PolyCollection
 from matplotlib.artist import Artist
 from matplotlib.legend import Legend
 
@@ -183,7 +184,7 @@ class AxesDrawing(Drawing):
             self._legend_deps.append(artifact)
             return artifact
 
-        def update(artifact: Line2D, cache):
+        def update(artifact: Line2D, cache: dict[str, Any]):
             if cache.get("y", None) != y:
                 artifact.set_ydata([y, y])
                 cache["y"] = y
@@ -192,7 +193,7 @@ class AxesDrawing(Drawing):
             self._legend_deps.remove(artifact)
             artifact.remove()
 
-        deps = dict(y=y, xmin=xmin, xmax=xmax, **kwargs)
+        deps = dict(xmin=xmin, xmax=xmax, **kwargs)
         return self._use_artifact("axhline", deps, create, update, remove)
 
     def axvline(
@@ -207,7 +208,7 @@ class AxesDrawing(Drawing):
             self._legend_deps.append(artifact)
             return artifact
 
-        def update(artifact: Line2D, cache):
+        def update(artifact: Line2D, cache: dict[str, Any]):
             if cache.get("x", None) != x:
                 artifact.set_xdata([x, x])
                 cache["x"] = x
@@ -216,8 +217,37 @@ class AxesDrawing(Drawing):
             self._legend_deps.remove(artifact)
             artifact.remove()
 
-        deps = dict(x=x, ymin=ymin, ymax=ymax, **kwargs)
+        deps = dict(ymin=ymin, ymax=ymax, **kwargs)
         return self._use_artifact("axvline", deps, create, update, remove)
+
+    def fill_between(
+        self,
+        x,
+        y1,
+        y2=0,
+        where=None,
+        interpolate=False,
+        step=None,
+        **kwargs,
+    ):
+        def create():
+            artifact = self.ax.fill_between(
+                x, y1, y2=y2, where=where, interpolate=interpolate, step=step, **kwargs
+            )
+            self._legend_deps.append(artifact)
+            return artifact
+
+        def update(artifact: PolyCollection, cache):
+            pass
+
+        def remove(artifact: PolyCollection):
+            self._legend_deps.remove(artifact)
+            artifact.remove()
+
+        deps = dict(
+            x=x, y1=y1, y2=y2, where=where, interpolate=interpolate, step=step, **kwargs
+        )
+        return self._use_artifact("fill_between", deps, create, update, remove)
 
     def set_xlabel(self, xlabel: str, **kwargs) -> None:
         def create():
@@ -272,6 +302,22 @@ class AxesDrawing(Drawing):
 
         return self._use_artifact("twinx", {}, create, update, remove)
 
+    def set_title(
+        self,
+        label: str,
+        fontdict: dict | None = None,
+        loc: Literal["center", "left", "right"] | None = None,
+        pad: float | None = None,
+        *,
+        y: float | None = None,
+        **kwargs,
+    ):
+        def create():
+            self.ax.set_title(label, fontdict=fontdict, loc=loc, pad=pad, y=y, **kwargs)
+
+        deps = dict(label=label, fontdict=fontdict, loc=loc, pad=pad, y=y, **kwargs)
+        self._use_artifact("set_title", deps, create)
+
     def autoscale(
         self,
         enable: bool = True,
@@ -308,12 +354,12 @@ class AxesDrawing(Drawing):
 
 
 class FigDrawing(Drawing):
-    def __init__(self, fig: Figure | None = None):
+    def __init__(self, fig: Figure | None = None, **kwargs):
         super().__init__()
 
         if fig is None:
             with pyplot.ioff():
-                fig = pyplot.figure()
+                fig = pyplot.figure(**kwargs)
 
         self.fig = fig
 
