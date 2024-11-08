@@ -9,7 +9,7 @@ from matplotlib import pyplot
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
-from matplotlib.collections import PolyCollection
+from matplotlib.collections import PolyCollection, PathCollection
 from matplotlib.artist import Artist
 from matplotlib.legend import Legend
 
@@ -171,6 +171,36 @@ class AxesDrawing(Drawing):
 
         deps = [fmt, kwargs]
         return self._use_artifact("plot", deps, create, update, remove)
+
+    def scatter(
+        self,
+        x: ArrayLike,
+        y: ArrayLike,
+        s: ArrayLike | None = None,
+        c: ArrayLike | None = None,
+        **kwargs,
+    ) -> PathCollection:
+        """
+        A scatter plot of *y* vs. *x* with varying marker size and/or color.
+        """
+
+        def create() -> Any:
+            collection = self.ax.scatter(x, y, **kwargs)
+            self._legend_deps.append(collection)
+            return collection
+
+        def update(collection: Any, cache: dict[str, Any]) -> None:
+            offsets = np.column_stack([x, y])
+            if cache.get("offsets", None) is not offsets:
+                collection.set_offsets(offsets)
+                cache["offsets"] = offsets
+
+        def remove(collection: Any) -> None:
+            self._legend_deps.remove(collection)
+            collection.remove()
+
+        deps = kwargs
+        return self._use_artifact("scatter", deps, create, update, remove)
 
     def axhline(
         self,
