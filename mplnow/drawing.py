@@ -185,7 +185,7 @@ class AxesDrawing(Drawing):
         """
 
         def create() -> Any:
-            collection = self.ax.scatter(x, y, **kwargs)
+            collection = self.ax.scatter(x, y, s=s, c=c, **kwargs)
             self._legend_deps.append(collection)
             return collection
 
