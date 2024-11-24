@@ -410,6 +410,9 @@ class FigDrawing(Drawing):
     def draw(self):
         self.fig.canvas.draw()
 
+    def show(self):
+        self.fig.show()
+
     def subplots(
         self,
         nrows: int = 1,
